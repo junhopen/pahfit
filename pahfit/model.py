@@ -667,6 +667,33 @@ class Model:
         fig.tight_layout()
 
         return fig
+                 
+    def calculate_sigma(self, spec):
+        """Calculate the sigma of the model and observation data.
+        Sigma is defined as the ratio of the absolute integral of the residual to the 
+        integral of the observed data.
+        """
+        res = flux - self.tabulate(instrument, 0, lam).flux.value
+        
+        dx = np.diff(lam)
+        r0, r1 = res[:-1], res[1:]
+        areas = np.zeros_like(dx)
+        # Calculate the area when adjacent residuals have the same sign.
+        same_sign = r0 * r1 > 0
+        areas[same_sign] = 0.5 * (np.abs(r0[same_sign]) + np.abs(r1[same_sign])) * dx[same_sign]
+        # Calculating the area when the adjacent residual signs are different.
+        opp = ~same_sign
+        if np.any(opp):
+            r0o = r0[opp]
+            r1o = r1[opp]
+            dxo = dx[opp]
+            denom = np.abs(r0o - r1o)
+            areas[opp] = 0.5 * dxo * (r0o**2 + r1o**2) / denom
+            
+        res_integral = np.sum(areas)
+        obs_integral = integrate.trapezoid(flux, lam)
+        sigma = res_integral / obs_integral
+        return sigma
 
     def copy(self):
         """Copy the model.
