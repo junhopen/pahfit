@@ -668,11 +668,13 @@ class Model:
 
         return fig
                  
-    def calculate_sigma(self, spec):
+    def calculate_sigma(self, spec, redshift=None):
         """Calculate the sigma of the model and observation data.
         Sigma is defined as the ratio of the absolute integral of the residual to the 
         integral of the observed data.
         """
+        instrument, z = self._parse_instrument_and_redshift(spec, redshift)
+        _, _, _, lam, flux, unc = self._convert_spec_data(spec, z)
         res = flux - self.tabulate(instrument, 0, lam).flux.value
         
         dx = np.diff(lam)
