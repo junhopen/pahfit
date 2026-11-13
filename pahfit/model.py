@@ -231,7 +231,7 @@ class Model:
             bb = ModifiedBlackBody1D(1, temp)
             flux_ref = np.median(flux[(lam > lam_ref - 0.2) & (lam < lam_ref + 0.2)])
             amp_guess = flux_ref / bb(lam_ref)
-            return np.clip(amp_guess / nbb, 0, 1.)
+            return np.clip(amp_guess / nbb, 0, None)
 
         loop_over_non_fixed("dust_continuum", "tau", dust_continuum_guess)
 
@@ -285,8 +285,19 @@ class Model:
             loop_over_non_fixed("line", "power",
                                 lambda row: power_guess(row, line_fwhm_guess(row)))
         else:
-            loop_over_non_fixed("line", "power",
-                                lambda row: median_flux * line_fwhm_guess(row))
+            loop_over_non_fixed(
+                "line",
+                "power",
+                # approximate power = fnu * dlambda * c / lambda**2 = intensity * fwhm * c / lambda**2
+                lambda row: (
+                    (median_flux * units.intensity)
+                    * (line_fwhm_guess(row) * units.wavelength)
+                    * constants.c
+                    / (row["wavelength"]["val"] * units.wavelength) ** 2
+                )
+                .to(units.intensity_power)
+                .value,
+            )
 
         # Override the fwhms in the features table. Slightly different logic,
         # as the fwhm for lines are masked by default. TODO: leave FWHM
@@ -302,10 +313,10 @@ class Model:
                     # its elements is masked.  Table prevents setting
                     # values in such a masked array element, so we
                     # access the underlying array itself with .data
-                    self.features["fwhm"].data[row_index]['val'] = line_fwhm_guess(row)
-                    for b in ('min', 'max'):
+                    self.features["fwhm"].data[row_index]["val"] = line_fwhm_guess(row)
+                    for b in ("min", "max"):
                         self.features["fwhm"].data[row_index][b] = np.nan
-                    self.features["fwhm"].data[row_index]['frozen'] = False
+                    self.features["fwhm"].data[row_index]["frozen"] = False
                 elif not bounded_is_fixed(row["fwhm"]):
                     self.features["fwhm"].data[row_index]["val"] = line_fwhm_guess(row)
 
@@ -343,7 +354,7 @@ class Model:
         return lam_obs, flux_obs, unc_obs, lam, flux, unc
 
     def fit(self, spec: Spectrum1D, redshift=None, maxiter=1000, verbose=True,
-            use_instrument_fwhm=True):
+            use_instrument_fwhm=True, method=None):
         """Fit the observed data.
 
         The model setup is based on the features table and instrument
@@ -391,6 +402,10 @@ class Model:
             bounds are provided on the fwhm for a line, the fwhm for
             this line will be fit to the data.
 
+        method : {"lm", "trf"} or None
+            Fitting method passed to the active fitter backend. If None,
+            the backend default is used; for APFitter this remains LM.
+
         """
         # parse spectral data
         self.features.meta["user_unit"]["flux"] = spec.flux.unit
@@ -405,7 +420,7 @@ class Model:
         instrument.check_range([min(x), max(x)], inst)
 
         self._set_up_fitter(inst, z, lam=x, use_instrument_fwhm=use_instrument_fwhm)
-        self.fitter.fit(lam, flux, unc, maxiter=maxiter)
+        self.fitter.fit(lam, flux, unc, maxiter=maxiter, method=method)
 
         # copy the fit results to the features table
         self._ingest_fit_result_to_features()
